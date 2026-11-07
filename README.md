@@ -118,208 +118,368 @@ El almacenamiento de flujos se realiza actualmente en memoria mediante `FlowStor
 
 ## 4. Fases de implementación
 
-### Fase 1. Registro de aplicación en Microsoft Entra ID
+El desarrollo del laboratorio se organizó en varias fases. Cada una fue incorporando funcionalidad y controles de seguridad, seguida de pruebas y revisiones para comprobar que los cambios no afectaban a los flujos que ya funcionaban.
 
-Se registró la aplicación web en el tenant de Mirador de Montepinar S.L.
+### Fase 1. Registro y configuración de la aplicación en Microsoft Entra ID
 
-Se configuraron las URI de redirección y cierre de sesión, así como el permiso delegado User.Read de Microsoft Graph.
+El primer paso fue registrar la aplicación web de Mirador de Montepinar S.L. en el tenant de Microsoft Entra ID.
 
-Se creó un secreto de cliente para que la aplicación Flask pudiera autenticarse como cliente confidencial. El secreto se mantiene en el archivo local .env, excluido del repositorio.
+**Nombre del registro:** `Mirador de Montepinar - Portal de la comunidad`
 
-### Fase 2. Implementación de OAuth 2.0 y OpenID Connect
+Se configuró una aplicación de tipo Web, con autenticación de un único tenant y las siguientes direcciones:
 
-Se integró MSAL Python para implementar el flujo Authorization Code.
+| Configuración | URI |
+|---|---|
+| Redirect URI | `http://localhost:5000/getAToken` |
+| Post-logout redirect URI | `http://localhost:5000/` |
 
-La aplicación utiliza OpenID Connect para obtener información de identidad y PKCE para proteger el intercambio del código de autorización.
+También se creó un secreto de cliente para que Flask pudiera autenticarse como aplicación confidencial. El secreto se guarda en `.env` y no forma parte del repositorio.
 
-Se incorporaron los parámetros state y nonce para vincular la solicitud y validar la respuesta recibida.
+El registro utiliza el permiso delegado `User.Read` de Microsoft Graph. Se decidió no conceder permisos adicionales de lectura del directorio, ya que el laboratorio debía demostrar el principio de mínimo privilegio.
 
-### Fase 3. Almacenamiento y protección del flujo de autenticación
+**Evidencia:**
 
-Se desarrolló un almacén temporal en servidor (FlowStore) para gestionar los datos asociados a cada intento de inicio de sesión.
+![Configuración de autenticación y URI de redirección](screenshots/02_auth.png)
 
-Se añadieron controles para evitar la reutilización de códigos de autorización, el consumo de flujos por navegadores distintos y la aceptación de solicitudes expiradas.
+### Fase 2. Implementación del flujo OAuth 2.0 y OpenID Connect
 
-El almacén utiliza un bloqueo de concurrencia y una vinculación específica con el navegador que inició la autenticación.
+Se desarrolló la integración entre Flask y Microsoft Entra ID mediante la biblioteca MSAL para Python.
 
-### Fase 4. Gestión de sesiones y controles de seguridad
+La aplicación utiliza el flujo **Authorization Code Flow con PKCE**, apropiado para implementar un inicio de sesión seguro mediante un cliente web confidencial.
 
-Se reforzó la gestión de sesiones de Flask mediante:
+El proceso se desarrolló de la siguiente manera:
 
-Cookies HttpOnly.
+1. El usuario solicita iniciar sesión desde el portal.
+2. MSAL prepara la solicitud de autorización y genera los parámetros necesarios para el flujo.
+3. Se incorporan `state`, `nonce` y el material de PKCE, utilizando el método S256.
+4. El navegador es redirigido al endpoint de autorización de Microsoft Entra ID.
+5. Tras autenticarse, el usuario vuelve al callback `/getAToken` con el código de autorización y el estado.
+6. Flask recupera el flujo original y comprueba que corresponde al intento de autenticación iniciado.
+7. MSAL realiza el intercambio del código de autorización por los tokens correspondientes.
+8. Se obtienen los claims de identidad del ID token y se establece la sesión del usuario.
 
-Configuración SameSite=Lax.
+El parámetro `state` permite vincular la respuesta con la solicitud original. El `nonce` protege la correlación de la identidad recibida con la autenticación iniciada. PKCE añade una comprobación mediante el `code_verifier`, que debe corresponder al desafío enviado inicialmente.
 
-Opción Secure configurable para entornos HTTPS.
+Se separó la lógica de autenticación de las rutas Flask, manteniendo la integración con MSAL en sus módulos correspondientes.
 
-Firma criptográfica de las cookies de sesión.
+### Fase 3. Desarrollo del almacenamiento temporal FlowStore
 
-Expiración de sesión.
+Uno de los trabajos más importantes del laboratorio fue diseñar un mecanismo para gestionar los datos temporales de los intentos de autenticación sin introducirlos directamente en la cookie del navegador.
 
-Limpieza de la sesión anterior antes de establecer una nueva identidad.
+Para ello se desarrolló `FlowStore`, un almacenamiento temporal en memoria del servidor.
 
-También se incorporaron las siguientes medidas:
+Cada flujo conserva la información necesaria para completar su correspondiente callback, incluyendo el estado, el verificador PKCE, el nonce y los datos de vinculación con el navegador.
 
-Protección CSRF: Flask-WTF protege los formularios y el endpoint de logout, que requiere una petición POST.
+Se implementaron los siguientes controles:
 
-Protección XSS: se sustituyó el renderizado HTML mediante cadenas f-string por plantillas Jinja2 con autoescape.
+- **Caducidad:** tiempo de vida de 600 segundos por flujo.
+- **Vinculación al navegador:** cada flujo incorpora un `binding_token` generado mediante `secrets.token_urlsafe(32)`.
+- **Comparación segura:** se utiliza `secrets.compare_digest` para validar el token de vinculación.
+- **Consumo atómico:** `pop_flow()` recupera y consume el flujo en una única operación protegida por `threading.Lock`.
+- **Protección frente a reutilización:** un flujo consumido no puede volver a utilizarse.
+- **Gestión de expiración:** los flujos caducados se rechazan y se eliminan del almacenamiento.
+- **Concurrencia:** se permiten varios intentos independientes de autenticación desde distintas pestañas del mismo navegador.
+- **Límite de almacenamiento:** se permiten hasta diez flujos por navegador. Cuando se supera el límite, se expulsan los más antiguos.
 
-Gestión de configuración: se centralizaron los parámetros de configuración, se incorporaron validaciones y se separaron los secretos del código fuente.
+También se probaron situaciones de fallo, como callbacks iniciados desde otro navegador, estados incorrectos, intentos repetidos y flujos expirados.
 
-Logging estructurado: se implementó un formato JSON con una lista controlada de campos, evitando registrar tokens, secretos y otros datos sensibles.
+Este componente evita depender únicamente de los parámetros que devuelve el navegador y mantiene los datos sensibles del proceso de autenticación bajo control del servidor.
 
-### Fase 5. Integración con Microsoft Graph
+### Fase 4. Endurecimiento de seguridad de la aplicación Flask
 
-Una vez autenticado el usuario, la aplicación utiliza el access token para consultar Microsoft Graph.
+Una vez completada la autenticación, se realizó una revisión de seguridad del portal. Esta fase dio lugar a seis bloques de corrección y mejora, identificados como SEC-01 a SEC-06.
 
-Se implementaron dos escenarios:
+#### SEC-01. Protección frente a Cross-Site Scripting (XSS)
 
-Consulta del perfil (/me)
+Se revisó el renderizado de contenido dinámico y se sustituyó la construcción de HTML mediante cadenas f-string por plantillas Jinja2.
 
-La llamada permite recuperar información del usuario autenticado mediante el permiso delegado User.Read.
+La aplicación utiliza el autoescape de Jinja2 para escapar los valores procedentes del usuario y de los claims antes de mostrarlos en el navegador.
 
-El portal presenta datos dinámicos, como el nombre y el identificador de la cuenta, en función de la identidad que ha iniciado sesión.
+Se añadieron pruebas para comprobar que los datos manipulados no se interpretan como código HTML o JavaScript.
 
-Consulta del directorio (/users)
+#### SEC-02. Protección CSRF
 
-Se realiza una prueba de acceso a información de otros usuarios del directorio.
+Se integró Flask-WTF para proteger los formularios mediante tokens CSRF.
 
-La operación devuelve HTTP 403 Forbidden debido a que la aplicación no dispone de los permisos necesarios.
+Se prestó especial atención al cierre de sesión: el endpoint `/logout` requiere una petición POST protegida.
 
-Este resultado es intencionado y permite demostrar el principio de mínimo privilegio: una autenticación correcta no implica que el usuario o la aplicación tengan autorización para acceder a todos los recursos.
+Una petición GET a esta ruta no debe ejecutar el cierre de sesión. También se probaron tanto las peticiones sin token válido como las que incluyen un token correcto.
 
-### Fase 6. Gestión de errores y cierre de sesión
+#### SEC-03. Protección y gestión de sesiones
 
-Se implementó el cierre de sesión federado para limpiar la sesión local de Flask y redirigir al endpoint de logout de Microsoft Entra ID.
+Se reforzó la configuración de las sesiones de Flask:
 
-Se corrigió también la clasificación HTTP de los errores del callback:
+- Cookies `HttpOnly`.
+- Política `SameSite=Lax`.
+- Parámetro `Secure` configurable para entornos HTTPS.
+- Firma criptográfica de las cookies.
+- Expiración de sesión.
+- Limpieza de la sesión anterior mediante `session.clear()` antes de establecer una nueva identidad.
 
-Situación
+Se comprobó que los datos temporales del flujo OAuth, como el `code_verifier` y el `nonce`, no se almacenan en la cookie del navegador.
 
-Respuesta
+Las cookies están firmadas, pero no cifradas. Por este motivo, la aplicación evita almacenar en ellas secretos y tokens de acceso.
 
-Error OAuth durante el callback o intercambio del código
+#### SEC-04. Validación de configuración y gestión de secretos
 
-400 Bad Request
+Se centralizaron las variables de configuración y se incorporaron validaciones para reducir errores de configuración.
 
-Respuesta sin access token
+Se revisaron, entre otros, los siguientes elementos:
 
-502 Bad Gateway
+- Clave de sesión de Flask.
+- Identificador del tenant.
+- URI de retorno tras el logout.
+- Tiempo de vida de los flujos temporales.
+- Dominios y valores de configuración.
+- Separación entre configuración de ejemplo y secretos reales.
 
-Respuesta sin claims de identidad
+El archivo `.env` permanece fuera del repositorio y `.env.example` sirve como referencia para preparar una instalación.
 
-502 Bad Gateway
+#### SEC-05. Logging estructurado y protección de información sensible
 
-Acceso no autorizado a recursos de Graph
+Se implementó un sistema de logging estructurado en formato JSON.
 
-403 Forbidden
+El formato controla los campos permitidos mediante una lista explícita y utiliza un identificador de petición generado en el servidor.
 
-Los errores se muestran mediante plantillas HTML sin exponer información sensible.
+Se evitó registrar tokens de acceso, secretos de cliente y otros elementos sensibles del proceso de autenticación.
 
-### Fase 7. Pruebas y validación
+También se revisaron los datos adicionales que pueden llegar a los registros para impedir que información arbitraria termine exponiéndose.
 
-Se desarrolló una suite de pruebas automatizadas para verificar los controles de seguridad y los flujos principales de la aplicación.
+#### SEC-06. Cierre de sesión OIDC
 
-Resultado final: 67 pruebas aprobadas, sin fallos ni errores.
+Se implementó el cierre de sesión federado teniendo en cuenta los dos niveles de la aplicación:
 
-Entre los escenarios comprobados se encuentran:
+1. Limpieza de la sesión local de Flask.
+2. Redirección al endpoint de logout del tenant de Microsoft Entra ID.
 
-Gestión de flujos temporales y expiración.
+Se configuró `post_logout_redirect_uri` para que el usuario vuelva al portal después de completar el cierre de sesión.
 
-Validación de state y vinculación con el navegador.
+Se comprobó que la URI de retorno está registrada como Redirect URI de tipo Web y se revisó que no se confundiera con la configuración independiente de Front-channel logout.
 
-Prevención de reutilización de flujos.
+También se decidió no almacenar el ID token para utilizar `id_token_hint`. La aplicación mantiene una gestión de sesión más sencilla y evita introducir el token en la cookie o añadir almacenamiento persistente sin una necesidad funcional demostrada.
 
-Flujos concurrentes en distintas pestañas.
+### Fase 5. Integración con Microsoft Graph y autorización
 
-Protección CSRF.
+Una vez conseguida la autenticación, se incorporó Microsoft Graph para consultar información corporativa utilizando el access token delegado.
 
-Configuración de cookies de sesión.
+Se implementaron dos escenarios para demostrar la diferencia entre autenticación y autorización.
 
-Renderizado dinámico de identidades.
+**Consulta del perfil personal: `GET /me`**
 
-Protección XSS.
+La aplicación utiliza el permiso delegado `User.Read` para consultar el perfil del usuario que ha iniciado sesión.
 
-Cierre de sesión.
+Los datos obtenidos se utilizan para mostrar información dinámica en el portal, como el nombre y el identificador de la cuenta.
 
-Gestión de errores OAuth/OIDC.
+**Consulta de otros usuarios: `GET /users`**
 
-Respuestas 400 y 502 ante los errores del callback.
+Se realizó una segunda consulta para comprobar qué ocurría al intentar acceder al directorio de usuarios con los permisos concedidos.
 
-Además de las pruebas automatizadas, se realizaron validaciones manuales contra el tenant real de Microsoft Entra ID:
+Microsoft Graph devuelve HTTP 403 Forbidden porque la aplicación no dispone de los permisos necesarios para realizar esa operación.
 
-Inicio de sesión con Joaquín Arias.
+El resultado es deliberado. El usuario está autenticado, pero la aplicación no tiene autorización suficiente para consultar el directorio completo.
 
-Inicio de sesión con Sergio Arias.
+De esta forma se demuestra que disponer de una identidad válida no implica tener acceso a todos los recursos corporativos.
 
-Comprobación del cambio dinámico de identidad en el portal.
+**Evidencias:**
 
-Verificación del cierre de sesión contra Microsoft Entra ID.
+![Permisos delegados de Microsoft Graph](screenshots/03_msgraph.png)
 
-5. Resultados y validación
+![Acceso denegado a Microsoft Graph](screenshots/11_forbidden.png)
 
-El laboratorio demuestra que una aplicación web puede delegar la autenticación en Microsoft Entra ID y utilizar la identidad obtenida para acceder a recursos corporativos mediante Microsoft Graph.
+### Fase 6. Identidad dinámica y validación con usuarios reales
 
-La validación con dos cuentas reales permitió comprobar que la aplicación no depende de una identidad codificada manualmente, sino que representa dinámicamente al usuario autenticado.
+Durante las primeras fases del laboratorio se utilizaron distintas cuentas de prueba para comprobar la integración con Entra ID.
 
-También se comprobó que la aplicación distingue correctamente entre autenticación y autorización. El usuario puede acceder a su propio perfil con User.Read, mientras que la consulta del directorio completo queda bloqueada con HTTP 403.
+Posteriormente se revisó la aplicación para eliminar cualquier dependencia de una identidad codificada manualmente y hacer que el portal representara dinámicamente al usuario autenticado.
 
-Resultado de las pruebas automatizadas:
+La plantilla utiliza los datos de identidad y del perfil de Graph para mostrar el contenido correspondiente a cada sesión.
 
+Se realizaron autenticaciones reales contra el tenant con dos usuarios:
+
+- **Joaquín Arias:** `jarias@monte...`
+- **Sergio Arias:** `sarias@monte...`
+
+En ambos casos se comprobó que el inicio de sesión se completaba correctamente y que el portal mostraba la identidad correspondiente.
+
+Se verificó también el cierre de sesión real contra Microsoft Entra ID.
+
+**Evidencias:**
+
+![Portal autenticado con Joaquín Arias](screenshots/06_joaquin.png)
+
+![Portal autenticado con Sergio Arias](screenshots/07_sergio.png)
+
+### Fase 7. Gestión de errores y validación de casos límite
+
+Se revisó el comportamiento de la aplicación cuando el callback OAuth/OIDC no devuelve los datos esperados.
+
+Se corrigieron las respuestas HTTP para representar mejor el origen de cada fallo:
+
+| Situación | Código HTTP | Tratamiento |
+|---|---:|---|
+| Error OAuth durante el callback o intercambio del código | 400 Bad Request | Se muestra el error de autenticación y se consume el flujo. |
+| MSAL no devuelve `access_token` | 502 Bad Gateway | Se trata como respuesta inesperada del proveedor de identidad. |
+| No se reciben los claims de identidad | 502 Bad Gateway | Se rechaza la creación de la sesión autenticada. |
+| Acceso no autorizado a `/users` | 403 Forbidden | Se informa de la falta de permisos sobre el recurso. |
+
+Se añadieron pruebas específicas para los errores de ausencia de `access_token` y de claims OIDC.
+
+También se actualizó la prueba que comprueba el tratamiento de errores OAuth para verificar el nuevo código HTTP 400.
+
+En los escenarios de error se comprueba que el flujo temporal queda eliminado y que no se establece una sesión autenticada.
+
+### Fase 8. Pruebas automatizadas, auditoría y correcciones finales
+
+El laboratorio se sometió a varios ciclos de revisión y corrección. Se inspeccionaron las rutas, las plantillas, la gestión de sesiones, los flujos temporales, la integración con Graph y las pruebas automatizadas.
+
+La suite se ejecuta mediante:
+
+```powershell
+python -m unittest discover tests -v
+```
+
+La validación final obtuvo el siguiente resultado:
+
+```text
 Ran 67 tests
 OK
+```
 
-Resultado de las validaciones manuales: inicio de sesión y logout reales completados correctamente.
+Se incorporaron pruebas para verificar el comportamiento ante errores de autenticación, la limpieza del FlowStore, la configuración de sesiones, la protección CSRF, el autoescape de Jinja2 y la representación dinámica de distintas identidades.
 
-## 6. Tecnologías y competencias practicadas
+La revisión final también incluyó la fijación de las cinco dependencias directas en `requirements.txt`, utilizando las versiones verificadas en el entorno virtual del proyecto.
 
-- Tecnología
-- Competencia
-- Microsoft Entra ID
-- Registro de aplicaciones y autenticación federada.
-- OAuth 2.0
-- Authorization Code Flow.
-- OpenID Connect
-- Identidad y validación de claims.
-- PKCE
-- Protección del intercambio del código de autorización.
-- MSAL Python
-- Integración de aplicaciones con Microsoft Identity Platform.
-- Microsoft Graph
-- API REST y permisos delegados.
-- Python 3.13
-- Desarrollo y pruebas automatizadas.
-- Flask
-- Routing, sesiones y aplicaciones web.
-- Flask-WTF
-- Protección CSRF.
-- Jinja2
-- Plantillas y protección XSS mediante autoescape.
-- unittest y unittest.mock
-- Pruebas unitarias y de integración con dependencias simuladas.
-- GitHub
-- Documentación y presentación del portfolio técnico.
+El resultado es una aplicación que ha pasado tanto por pruebas automatizadas como por comprobaciones manuales contra un tenant real de Microsoft Entra ID.
 
-## 7. Limitaciones y decisiones de arquitectura
+**Evidencia:**
 
-El laboratorio está diseñado para un entorno de desarrollo local y no debe considerarse una aplicación lista para producción.
+![Resultado final de las 67 pruebas automatizadas](screenshots/12_tests.png)
 
-FlowStore en memoria: los flujos temporales se almacenan en memoria dentro del proceso Flask. En un despliegue multiproceso o con varias instancias, sería necesario utilizar un almacén compartido, como Redis, con expiración de claves.
+---
 
-Sesiones Flask: las cookies de sesión están firmadas, pero no cifradas. Por ello, no se almacenan en ellas secretos ni tokens de acceso.
+## 5. Conclusiones y resultados de validación
 
-Gestión de tokens: el access token se utiliza para realizar las consultas a Microsoft Graph y no se persiste como parte de la sesión web. No se ha implementado una caché persistente de tokens ni un flujo de renovación silenciosa.
+El laboratorio ha permitido desarrollar y comprobar una aplicación web que delega la autenticación en Microsoft Entra ID mediante OAuth 2.0 y OpenID Connect.
 
-Logout OIDC: no se almacena el ID token para utilizar id_token_hint. El cierre de sesión limpia primero la sesión local y redirige al endpoint de logout del tenant. En escenarios con varias cuentas Microsoft abiertas, el proveedor puede solicitar seleccionar qué cuenta cerrar.
+El resultado no se limita a completar un inicio de sesión. Se ha trabajado en el ciclo completo de autenticación, desde la creación de la solicitud y el almacenamiento temporal del flujo hasta el procesamiento del callback, la creación de la sesión, las consultas a Microsoft Graph y el cierre de sesión federado.
 
-Entorno de ejecución: las URI localhost y la configuración actual están destinadas a pruebas locales. Un despliegue real requeriría HTTPS, gestión de secretos apropiada para producción, almacenamiento compartido de estado y una revisión adicional de la configuración operativa.
+### Resultados técnicos
 
-## 8. Próximas mejoras
+| Área | Resultado |
+|---|---|
+| OAuth 2.0 | Authorization Code Flow implementado |
+| OpenID Connect | Claims de identidad integrados |
+| PKCE | Implementado con S256 |
+| State y nonce | Gestión y validación integradas |
+| FlowStore | Almacenamiento temporal con controles de concurrencia y reutilización |
+| Sesiones Flask | Cookies configuradas y sesión renovada durante el login |
+| CSRF | Protección de formularios y logout |
+| XSS | Autoescape mediante Jinja2 |
+| Logging | Registros JSON con campos controlados |
+| Microsoft Graph | Consulta personal mediante `User.Read` |
+| Mínimo privilegio | Acceso a `/users` rechazado con HTTP 403 |
+| Logout | Cierre de sesión local y federado |
+| Pruebas | 67 aprobadas, sin fallos |
+
+### Validación con Microsoft Entra ID
+
+Se realizaron pruebas manuales con dos identidades reales del tenant:
+
+- Joaquín Arias inició sesión correctamente y el portal mostró sus datos.
+- Sergio Arias inició sesión correctamente y el portal mostró su propia identidad.
+
+Se confirmó que ambas cuentas utilizan la misma aplicación y que la información mostrada depende de la identidad autenticada.
+
+También se validó el cierre de sesión real contra Microsoft Entra ID.
+
+### Resultado de la suite automatizada
+
+```text
+Ran 67 tests
+OK
+```
+
+Las pruebas incluyen escenarios de funcionamiento normal, errores OAuth/OIDC y controles de seguridad. Las autenticaciones reales con Joaquín y Sergio se registraron como validaciones manuales independientes de la suite automatizada.
+
+El laboratorio queda validado para su propósito formativo en un entorno local. No se presenta como una aplicación lista para producción.
+
+## 6. Tecnologías y competencias desarrolladas
+
+| Tecnología | Aplicación en el laboratorio | Competencia desarrollada |
+|---|---|---|
+| Microsoft Entra ID | Registro de aplicación, tenant y configuración de autenticación | Administración de identidad cloud y autenticación federada |
+| OAuth 2.0 | Authorization Code Flow | Implementación de flujos de autorización |
+| OpenID Connect | ID token, claims y validación de identidad | Gestión de identidad y autenticación |
+| PKCE | `code_verifier`, `code_challenge` y S256 | Protección del intercambio de códigos |
+| MSAL Python | Cliente confidencial e intercambio de tokens | Integración con Microsoft Identity Platform |
+| Microsoft Graph | API `/me` y `/users` | Consumo de API y permisos delegados |
+| Python 3.13 | Lógica de aplicación, configuración y tests | Desarrollo y automatización |
+| Flask | Rutas, sesiones y renderizado del portal | Desarrollo de aplicaciones web |
+| Flask-WTF | Protección CSRF | Seguridad de formularios y peticiones |
+| Jinja2 | Plantillas con autoescape | Mitigación de XSS |
+| `secrets` | Generación y comparación segura de tokens | Manejo de valores aleatorios sensibles |
+| `threading.Lock` | Control de concurrencia en FlowStore | Sincronización y gestión de estado |
+| `unittest` | Pruebas automatizadas | Validación de lógica y regresiones |
+| `unittest.mock` | Simulación de respuestas de MSAL y Graph | Pruebas controladas de integraciones |
+| `python-dotenv` | Carga de configuración local | Separación de configuración y código |
+| `requests` | Consultas HTTP a Microsoft Graph | Integración con servicios REST |
+| GitHub | Organización y documentación del proyecto | Presentación de portfolio técnico |
+
+### Competencias IAM practicadas
+
+El laboratorio trabaja áreas directamente relacionadas con funciones de IAM Engineer e Identity Security:
+
+- Integración de aplicaciones con un proveedor de identidad corporativo.
+- Autenticación federada y protocolos OAuth 2.0 / OIDC.
+- Gestión segura de credenciales y tokens.
+- Autorización mediante permisos delegados.
+- Aplicación del principio de mínimo privilegio.
+- Diferenciación entre autenticación y autorización.
+- Gestión de sesiones y cierre de sesión.
+- Análisis de errores de identidad y acceso.
+- Pruebas de seguridad y validación de controles.
+
+## 7. Limitaciones, decisiones de arquitectura y próximas mejoras
+
+El laboratorio está diseñado para aprender y validar conceptos de IAM en un entorno controlado. Durante su desarrollo se identificaron varias limitaciones que deberían abordarse antes de utilizar la aplicación en un entorno productivo.
+
+### Limitaciones actuales
+
+**Almacenamiento temporal en memoria**
+
+FlowStore utiliza memoria local del proceso Flask. El diseño incorpora bloqueo de concurrencia, caducidad y control de reutilización, pero no permite compartir automáticamente los flujos entre distintos procesos o instancias de la aplicación.
+
+En un despliegue distribuido sería necesario migrarlo a un almacenamiento compartido, como Redis, con expiración de claves.
+
+**Sesiones firmadas, pero no cifradas**
+
+Las cookies de sesión de Flask están protegidas mediante firma criptográfica, pero su contenido no está cifrado. La aplicación evita guardar en ellas tokens de acceso o datos sensibles del proceso PKCE.
+
+Para un despliegue real habría que revisar también la gestión de claves, el almacenamiento de sesiones y los requisitos operativos del entorno.
+
+**Sin persistencia de tokens**
+
+El access token obtenido se utiliza para consultar Microsoft Graph, pero no se conserva como parte de la sesión web ni se ha implementado una caché persistente para renovar tokens silenciosamente.
+
+Si se incorporase acceso prolongado a recursos protegidos, habría que diseñar una estrategia específica de caché y protección de tokens.
+
+**Logout sin `id_token_hint`**
+
+Se decidió no almacenar el ID token únicamente para enviarlo durante el cierre de sesión. La aplicación limpia la sesión local y redirige al endpoint de logout del tenant.
+
+Esta decisión evita añadir almacenamiento y complejidad que no son necesarios para demostrar el flujo implementado.
+
+**Entorno local de desarrollo**
+
+Las direcciones `localhost` y la configuración actual están destinadas a pruebas locales. Un despliegue productivo necesitaría HTTPS, una gestión adecuada de secretos, configuración específica del entorno y una revisión completa de seguridad.
+
+### Próximas mejoras
 
 - Migrar FlowStore a Redis para soportar múltiples procesos e instancias.
-- Incorporar una estrategia de gestión de tokens con caché segura y renovación silenciosa cuando sea necesario.
-- Añadir pruebas de integración adicionales contra Microsoft Graph.
-- Incorporar una configuración de despliegue con HTTPS y gestión externa de secretos.
-- Estudiar la implementación de Front-channel Logout para escenarios de Single Sign-On con varias aplicaciones.
-- Añadir monitorización y alertas sobre errores de autenticación y autorización.
-- Proyecto desarrollado como laboratorio práctico de IAM y seguridad de identidad con Microsoft Entra ID.
+- Implementar una estrategia de caché segura de tokens y renovación silenciosa cuando el caso de uso lo requiera.
+- Añadir pruebas de integración controladas contra Microsoft Graph, además de las pruebas con dependencias simuladas.
+- Preparar un entorno de despliegue con HTTPS y un sistema externo de gestión de secretos.
+- Incorporar monitorización de eventos de autenticación y autorización.
+- Estudiar la integración de Front-channel Logout para escenarios de Single Sign-On con varias aplicaciones.
+
+**Estado del proyecto:** laboratorio funcional y validado mediante 67 pruebas automatizadas y autenticaciones reales en Microsoft Entra ID. Las mejoras pendientes corresponden a su evolución hacia un entorno distribuido y de producción.
