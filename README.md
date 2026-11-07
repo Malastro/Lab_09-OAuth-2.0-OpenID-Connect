@@ -139,7 +139,7 @@ El registro utiliza el permiso delegado `User.Read` de Microsoft Graph. Se decid
 
 **Evidencia:**
 
-![Configuración de autenticación y URI de redirección](screenshots/02_auth.png)
+![Configuración de autenticación y URI de redirección](screenshots/01_auth.png)
 
 ### Fase 2. Implementación del flujo OAuth 2.0 y OpenID Connect
 
@@ -282,9 +282,9 @@ De esta forma se demuestra que disponer de una identidad válida no implica tene
 
 **Evidencias:**
 
-![Permisos delegados de Microsoft Graph](screenshots/03_msgraph.png)
+![Permisos delegados de Microsoft Graph](screenshots/02_msgraph.png)
 
-![Acceso denegado a Microsoft Graph](screenshots/11_forbidden.png)
+![Acceso denegado a Microsoft Graph](screenshots/05_forbidden.png)
 
 ### Fase 6. Identidad dinámica y validación con usuarios reales
 
@@ -305,9 +305,9 @@ Se verificó también el cierre de sesión real contra Microsoft Entra ID.
 
 **Evidencias:**
 
-![Portal autenticado con Joaquín Arias](screenshots/06_joaquin.png)
+![Portal autenticado con Joaquín Arias](screenshots/03_joaquin.png)
 
-![Portal autenticado con Sergio Arias](screenshots/07_sergio.png)
+![Portal autenticado con Sergio Arias](screenshots/04_sergio.png)
 
 ### Fase 7. Gestión de errores y validación de casos límite
 
@@ -353,7 +353,7 @@ El resultado es una aplicación que ha pasado tanto por pruebas automatizadas co
 
 **Evidencia:**
 
-![Resultado final de las 67 pruebas automatizadas](screenshots/12_tests.png)
+![Resultado final de las 67 pruebas automatizadas](screenshots/06_test.png)
 
 ---
 
