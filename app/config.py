@@ -108,6 +108,137 @@ def _is_valid_ip(host: str) -> bool:
         return False
 
 
+# Patrones y marcadores de posición no permitidos en claves secretas
+DISALLOWED_SECRET_PATTERNS = (
+    "change-me",
+    "replace-me",
+    "placeholder",
+    "your-secret-key",
+    "example-key",
+    "genera_tu_propia",
+    "secret-key",
+)
+
+
+def validate_flask_secret_key(secret_key: str) -> str:
+    """
+    Valida la clave secreta de Flask (FLASK_SECRET_KEY).
+
+    Exige:
+    - Cadena de texto no vacía.
+    - Longitud mínima de 32 caracteres (tras recortar espacios).
+    - Rechazo de valores de plantilla, ejemplos o marcadores de posición.
+    - Control básico de higiene frente a patrones triviales o repetitivos
+      (diversidad mínima de caracteres).
+
+    Nota de diseño:
+    La comprobación de diversidad de caracteres (al menos 8 distintos) es solo
+    un filtro básico de higiene para descartar cadenas obvias o repetitivas;
+    no proporciona ni sustituye una garantía de entropía criptográfica real.
+    Las claves deben generarse siempre mediante generadores criptográficamente
+    seguros (p. ej., secrets.token_urlsafe(48)).
+    """
+    if not secret_key or not isinstance(secret_key, str):
+        raise ValueError(
+            "FLASK_SECRET_KEY debe ser una cadena de texto no vacía."
+        )
+
+    trimmed = secret_key.strip()
+    if not trimmed:
+        raise ValueError(
+            "FLASK_SECRET_KEY no puede estar vacía o compuesta únicamente de espacios."
+        )
+
+    if len(trimmed) < 32:
+        raise ValueError(
+            "La variable FLASK_SECRET_KEY debe tener al menos "
+            "32 caracteres de longitud."
+        )
+
+    lower_key = trimmed.lower()
+    for pattern in DISALLOWED_SECRET_PATTERNS:
+        if pattern in lower_key:
+            raise ValueError(
+                "FLASK_SECRET_KEY contiene un valor de plantilla o ejemplo "
+                f"no seguro ('{pattern}'). Genere una clave criptográfica real."
+            )
+
+    if len(set(trimmed)) < 8:
+        raise ValueError(
+            "FLASK_SECRET_KEY carece de suficiente diversidad de caracteres "
+            "(patrón trivial o repetitivo no permitido)."
+        )
+
+    return trimmed
+
+
+def validate_session_cookie_secure(val: object) -> bool:
+    """
+    Valida la variable SESSION_COOKIE_SECURE.
+
+    Admite de forma estricta únicamente 'true' o 'false' (insensible a mayúsculas
+    y tolerante a espacios en los extremos).
+    Cualquier otro valor (como 'treu', 'yes', '1', vacíos o tipos no cadena)
+    lanza un ValueError.
+    """
+    if not isinstance(val, str):
+        raise ValueError(
+            "SESSION_COOKIE_SECURE debe ser una cadena de texto ('true' o 'false')."
+        )
+
+    cleaned = val.strip().lower()
+    if cleaned == "true":
+        return True
+    if cleaned == "false":
+        return False
+
+    raise ValueError(
+        f"SESSION_COOKIE_SECURE debe ser estrictamente 'true' o 'false' "
+        f"(valor recibido: '{val}')."
+    )
+
+
+def validate_permanent_session_lifetime(raw_val: object) -> int:
+    """
+    Valida la variable PERMANENT_SESSION_LIFETIME_MINUTES.
+
+    Exige un número entero positivo mayor o igual a 1.
+    Rechaza tipos booleanos, None, números decimales (float o cadenas flotantes como '1.5')
+    y cadenas no numéricas.
+    """
+    if raw_val is None or isinstance(raw_val, (bool, float)):
+        raise ValueError(
+            "La variable de configuración PERMANENT_SESSION_LIFETIME_MINUTES "
+            f"debe ser un número entero mayor o igual a 1 (valor recibido: '{raw_val}')."
+        )
+
+    if isinstance(raw_val, int):
+        if raw_val < 1:
+            raise ValueError(
+                "La variable de configuración PERMANENT_SESSION_LIFETIME_MINUTES "
+                f"debe ser un número entero mayor o igual a 1 (valor recibido: {raw_val})."
+            )
+        return raw_val
+
+    if isinstance(raw_val, str):
+        trimmed = raw_val.strip()
+        try:
+            val = int(trimmed)
+            if val < 1:
+                raise ValueError
+            return val
+        except ValueError:
+            raise ValueError(
+                "La variable de configuración PERMANENT_SESSION_LIFETIME_MINUTES "
+                f"debe ser un número entero mayor o igual a 1 (valor recibido: '{raw_val}')."
+            )
+
+    raise ValueError(
+        "La variable de configuración PERMANENT_SESSION_LIFETIME_MINUTES "
+        f"debe ser un número entero mayor o igual a 1 (valor recibido: '{raw_val}')."
+    )
+
+
 def validate_post_logout_redirect_uri(url: str) -> str:
     """
     Valida la URL de redirección posterior al logout.
@@ -214,46 +345,22 @@ def validate_post_logout_redirect_uri(url: str) -> str:
     return url
 
 
-# Leer la configuración de Microsoft Entra
+# Leer y validar la configuración de Microsoft Entra y seguridad Flask
 CLIENT_ID = os.getenv("CLIENT_ID")
 TENANT_ID = validate_tenant_id(os.getenv("TENANT_ID", ""))
 CLIENT_SECRET = os.getenv("CLIENT_SECRET")
 REDIRECT_URI = os.getenv("REDIRECT_URI")
-FLASK_SECRET_KEY = os.getenv("FLASK_SECRET_KEY")
-
-
-# Validación de robustez de la clave secreta de Flask
-if len(FLASK_SECRET_KEY) < 32:
-    raise ValueError(
-        "La variable FLASK_SECRET_KEY debe tener al menos "
-        "32 caracteres para garantizar una adecuada entropía."
-    )
-
+FLASK_SECRET_KEY = validate_flask_secret_key(os.getenv("FLASK_SECRET_KEY"))
 
 # Configuración de seguridad para cookies de sesión
-SESSION_COOKIE_SECURE = (
-    os.getenv("SESSION_COOKIE_SECURE", "false").lower() == "true"
+SESSION_COOKIE_SECURE = validate_session_cookie_secure(
+    os.getenv("SESSION_COOKIE_SECURE", "false")
 )
-
 
 # Duración de sesión en minutos (por defecto: 60)
-raw_lifetime = os.getenv(
-    "PERMANENT_SESSION_LIFETIME_MINUTES",
-    "60"
+PERMANENT_SESSION_LIFETIME_MINUTES = validate_permanent_session_lifetime(
+    os.getenv("PERMANENT_SESSION_LIFETIME_MINUTES", "60")
 )
-
-try:
-    PERMANENT_SESSION_LIFETIME_MINUTES = int(raw_lifetime)
-
-    if PERMANENT_SESSION_LIFETIME_MINUTES < 1:
-        raise ValueError
-
-except (ValueError, TypeError):
-    raise ValueError(
-        "La variable de configuración "
-        "PERMANENT_SESSION_LIFETIME_MINUTES debe ser un número "
-        f"entero mayor o igual a 1 (valor recibido: '{raw_lifetime}')."
-    )
 
 
 # Dirección de autenticación de nuestro tenant
