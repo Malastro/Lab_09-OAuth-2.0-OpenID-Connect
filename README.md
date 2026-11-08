@@ -91,9 +91,8 @@ Se ha configurado:
 
 La aplicación utiliza Authorization Code Flow con PKCE, junto con los parámetros `state` y `nonce` para reforzar la protección del proceso de autenticación.
 
-**Evidencia: configuración de autenticación de Microsoft Entra ID.**
-
 ![Configuración de autenticación de Microsoft Entra ID](screenshots/01_auth.png)
+
 
 ### 3.4. Gestión de permisos y acceso a Microsoft Graph
 
@@ -107,9 +106,8 @@ Este comportamiento es intencionado y permite comprobar en la práctica el princ
 
 La consulta al directorio se realiza desde el servidor durante el procesamiento del callback de autenticación. No existe una ruta Flask independiente `/users` en el portal.
 
-**Evidencia: permisos delegados configurados para Microsoft Graph.**
-
 ![Permisos de Microsoft Graph](screenshots/02_msgraph.png)
+
 
 ### 3.5. Controles de seguridad de la arquitectura
 
@@ -292,9 +290,8 @@ El resultado es deliberado. El usuario está autenticado, pero la aplicación no
 
 De esta forma se demuestra que disponer de una identidad válida no implica tener acceso a todos los recursos corporativos.
 
-**Evidencia: acceso denegado a Microsoft Graph.**
-
 ![Microsoft Graph devuelve HTTP 403 Forbidden](screenshots/05_forbidden.png)
+
 
 ### Fase 6. Identidad dinámica y validación con usuarios reales
 
@@ -313,11 +310,9 @@ En ambos casos se comprobó que el inicio de sesión se completaba correctamente
 
 Se verificó también el cierre de sesión real contra Microsoft Entra ID.
 
-**Evidencia: autenticación real con Joaquín Arias.**
 
 ![Portal de la comunidad autenticado con Joaquín Arias](screenshots/03_joaquin.png)
 
-**Evidencia: autenticación real con Sergio Arias.**
 
 ![Portal de la comunidad autenticado con Sergio Arias](screenshots/04_sergio.png)
 
@@ -365,7 +360,6 @@ La revisión final también incluyó la fijación de las cinco dependencias dire
 
 El resultado es una aplicación que ha pasado tanto por pruebas automatizadas como por comprobaciones manuales contra un inquilino real de Microsoft Entra ID.
 
-**Evidencia: resultado final de las 67 pruebas automatizadas.**
 
 ![Suite de 67 pruebas automatizadas superadas](screenshots/06_test.png)
 
