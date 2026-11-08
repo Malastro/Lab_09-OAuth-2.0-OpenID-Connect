@@ -1,0 +1,58 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>{{ title or "Error" }} - Mirador de Montepinar S.L.</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <!-- Barra de navegación corporativa -->
+    <header class="navbar">
+        <div class="navbar-container">
+            <a href="{{ url_for('main.index') }}" class="brand">
+                <div class="brand-icon">M</div>
+                <div class="brand-text">
+                    <h1>Mirador de Montepinar S.L.</h1>
+                    <span>Portal de Identidad Corporativa</span>
+                </div>
+            </a>
+        </div>
+    </header>
+
+    <main class="main-content">
+        <div class="error-card">
+            <div class="error-icon-box">!</div>
+            <h1>{{ title or "Error" }}</h1>
+            <p>{{ message }}</p>
+            {% if details %}
+            <div class="error-details">
+                <strong>Detalle técnico:</strong> {{ details }}
+            </div>
+            {% endif %}
+            <div style="margin-top: 1.5rem;">
+                <a href="{{ url_for('main.index') }}" class="btn-secondary">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="vertical-align: middle;">
+                        <line x1="19" y1="12" x2="5" y2="12"></line>
+                        <polyline points="12 19 5 12 12 5"></polyline>
+                    </svg>
+                    Volver al inicio
+                </a>
+            </div>
+        </div>
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div>
+                <strong>Mirador de Montepinar S.L.</strong> &copy; 2026. Todos los derechos reservados.
+            </div>
+            <div>
+                Laboratorio 09 — Autenticación OAuth 2.0 / OIDC con Microsoft Entra ID
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>

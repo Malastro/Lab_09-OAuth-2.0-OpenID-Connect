@@ -1,0 +1,300 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Mirador de Montepinar S.L. - Portal de Identidad y Empleados</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+
+    <!-- Barra de navegación corporativa -->
+    <header class="navbar">
+        <div class="navbar-container">
+            <a href="{{ url_for('main.index') }}" class="brand">
+                <div class="brand-icon">M</div>
+                <div class="brand-text">
+                    <h1>Mirador de Montepinar S.L.</h1>
+                    <span>Portal de Identidad Corporativa</span>
+                </div>
+            </a>
+
+            {% if user %}
+            <div class="nav-actions">
+                <div class="user-pill">
+                    <div class="avatar-circle">
+                        {{ (user.name[0] if user.name else "U") | upper }}
+                    </div>
+                    <span>{{ user.name }}</span>
+                </div>
+                <form method="POST" action="{{ url_for('main.logout') }}">
+                    <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+                    <button type="submit" class="btn-logout" title="Cerrar sesión segura">
+                        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" style="vertical-align: middle;">
+                            <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"></path>
+                            <polyline points="16 17 21 12 16 7"></polyline>
+                            <line x1="21" y1="12" x2="9" y2="12"></line>
+                        </svg>
+                        Cerrar sesión
+                    </button>
+                </form>
+            </div>
+            {% endif %}
+        </div>
+    </header>
+
+    <main class="main-content">
+        {% if not user %}
+        <!-- Pantalla de Acceso (Usuario no autenticado) -->
+        <div class="login-wrapper">
+            <div class="login-card">
+                <div class="login-logo">M</div>
+                <div class="login-header">
+                    <h2>Portal de identidad</h2>
+                    <p>Portal interno de empleados</p>
+                </div>
+
+                <div class="login-badge">
+                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                        <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                    </svg>
+                    Microsoft Entra ID • Single-Tenant
+                </div>
+
+                <p style="font-size: 0.92rem; color: var(--text-muted); margin-bottom: 1.75rem;">
+                    Accede de forma segura con tu cuenta corporativa para identificarte ante el sistema de gestión de la comunidad.
+                </p>
+
+                <a href="{{ url_for('main.login') }}" class="btn-microsoft">
+                    <div class="ms-logo-grid">
+                        <span class="ms-red"></span>
+                        <span class="ms-green"></span>
+                        <span class="ms-blue"></span>
+                        <span class="ms-yellow"></span>
+                    </div>
+                    <span>Iniciar sesión con Microsoft</span>
+                </a>
+
+                <div class="login-footer-info">
+                    <p>Autenticación federada basada en <strong>OAuth 2.0 y OpenID Connect</strong>, con protección PKCE y controles de seguridad en la gestión de sesiones.</p>
+                </div>
+            </div>
+        </div>
+
+        {% else %}
+        <!-- Dashboard Corporativo (Usuario autenticado) -->
+        <div class="dashboard-header">
+            <div>
+                <h2 class="welcome-title">Bienvenido, {{ user.name }}</h2>
+                <p class="welcome-subtitle">Portal corporativo de empleados y gestión comunitaria</p>
+            </div>
+            <div class="session-badge">
+                <span class="status-dot"></span>
+                <span>Sesión iniciada</span>
+            </div>
+        </div>
+
+        <div class="dashboard-grid">
+            <!-- Tarjeta 1: Información de Identidad Local -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-header-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="12" cy="7" r="4"></circle>
+                        </svg>
+                    </div>
+                    <h3 class="card-title">Identidad del Usuario</h3>
+                </div>
+                <div class="kv-list">
+                    <div class="kv-item">
+                        <span class="kv-label">Nombre:</span>
+                        <span class="kv-value">{{ user.name }}</span>
+                    </div>
+                    <div class="kv-item">
+                        <span class="kv-label">Correo:</span>
+                        <span class="kv-value kv-value-email">{{ user.preferred_username }}</span>
+                    </div>
+                    <div class="kv-item">
+                        <span class="kv-label">Estado:</span>
+                        <span class="kv-value" style="color: var(--success-text); font-weight: 700;">Sesión iniciada</span>
+                    </div>
+                    <div class="kv-item">
+                        <span class="kv-label">Proveedor:</span>
+                        <span class="kv-value">Microsoft Entra ID</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tarjeta 2: Perfil recuperado vía Microsoft Graph -->
+            <div class="card">
+                <div class="card-header">
+                    <div class="card-header-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <circle cx="12" cy="12" r="10"></circle>
+                            <path d="M2 12h20"></path>
+                            <path d="M12 2a15.3 15.3 0 0 1 4 10 15.3 15.3 0 0 1-4 10 15.3 15.3 0 0 1-4-10 15.3 15.3 0 0 1 4-10z"></path>
+                        </svg>
+                    </div>
+                    <h3 class="card-title">Perfil obtenido mediante Microsoft Graph</h3>
+                </div>
+                {% if graph_profile %}
+                <div class="kv-list">
+                    <div class="kv-item">
+                        <span class="kv-label">Nombre:</span>
+                        <span class="kv-value">{{ graph_profile.displayName or "No disponible" }}</span>
+                    </div>
+                    <div class="kv-item">
+                        <span class="kv-label">Usuario:</span>
+                        <span class="kv-value kv-value-email">{{ graph_profile.userPrincipalName or "No disponible" }}</span>
+                    </div>
+                    <div class="kv-item">
+                        <span class="kv-label">ID de Entra:</span>
+                        <span class="kv-value"><code class="code-badge code-badge-id">{{ graph_profile.id or "No disponible" }}</code></span>
+                    </div>
+                    <div class="kv-item">
+                        <span class="kv-label">Permiso aplicado:</span>
+                        <span class="kv-value"><code class="code-badge">User.Read (Delegado)</code></span>
+                    </div>
+                </div>
+                {% else %}
+                <p style="color: var(--text-muted); font-size: 0.9rem;">No se han cargado datos de perfil de Microsoft Graph.</p>
+                {% endif %}
+            </div>
+
+            <!-- Tarjeta 3: Prueba de Autorización Microsoft Graph (Mínimo Privilegio) -->
+            <div class="card card-test-auth">
+                <div class="card-header">
+                    <div class="card-header-icon">
+                        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                            <rect x="3" y="11" width="18" height="11" rx="2" ry="2"></rect>
+                            <path d="M7 11V7a5 5 0 0 1 10 0v4"></path>
+                        </svg>
+                    </div>
+                    <h3 class="card-title">Prueba de autorización Microsoft Graph</h3>
+                </div>
+
+                <div class="kv-list" style="margin-bottom: 0.85rem;">
+                    <div class="kv-item">
+                        <span class="kv-label">Endpoint probado:</span>
+                        <span class="kv-value"><code class="code-badge">GET https://graph.microsoft.com/v1.0/users</code></span>
+                    </div>
+                    <div class="kv-item">
+                        <span class="kv-label">Código HTTP:</span>
+                        <span class="kv-value"><code class="code-badge">{{ graph_test_status }}</code></span>
+                    </div>
+                </div>
+
+                {% if graph_test_status is not none %}
+                    {% if graph_test_status == 403 %}
+                    <div class="alert-box alert-warning">
+                        <div class="alert-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <circle cx="12" cy="12" r="10"></circle>
+                                <line x1="12" y1="8" x2="12" y2="12"></line>
+                                <line x1="12" y1="16" x2="12.01" y2="16"></line>
+                            </svg>
+                            Resultado: Acceso denegado
+                        </div>
+                        <p class="alert-desc">
+                            {{ user.name }} ha iniciado sesión correctamente,
+                            pero no dispone de permisos suficientes para consultar
+                            el directorio de usuarios.
+                        </p>
+                        <div class="alert-diag">
+                            Diagnóstico: Autenticación correcta. Autorización insuficiente.
+                        </div>
+                    </div>
+                    {% elif graph_test_status == 200 %}
+                    <div class="alert-box alert-success">
+                        <div class="alert-title">
+                            <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                                <polyline points="20 6 9 17 4 12"></polyline>
+                            </svg>
+                            Resultado: Acceso permitido
+                        </div>
+                        <p class="alert-desc">La consulta del directorio se ha completado correctamente.</p>
+                    </div>
+                    {% else %}
+                    <div class="alert-box">
+                        <p><strong>Resultado:</strong> Microsoft Graph ha devuelto el código HTTP {{ graph_test_status }}.</p>
+                    </div>
+                    {% endif %}
+                {% elif graph_test_error %}
+                    <div class="alert-box alert-warning">
+                        <p><strong>Resultado:</strong> No se pudo completar la consulta.</p>
+                        <p><strong>Diagnóstico:</strong> {{ graph_test_error }}</p>
+                    </div>
+                {% endif %}
+            </div>
+
+            <!-- Tarjeta 4: Desplegable de Claims del ID Token -->
+            <details class="claims-accordion" open>
+                <summary>
+                    <span>Claims del ID token (OpenID Connect)</span>
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <polyline points="6 9 12 15 18 9"></polyline>
+                    </svg>
+                </summary>
+                <div class="claims-content">
+                    <div class="table-responsive">
+                        <table class="claims-table">
+                            <thead>
+                                <tr>
+                                    <th class="col-claim">Claim OIDC</th>
+                                    <th class="col-desc">Descripción</th>
+                                    <th class="col-val">Valor verificado</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                <tr>
+                                    <td class="col-claim"><code class="claim-name">oid</code></td>
+                                    <td class="col-desc">Object Identifier (ID único del usuario en el directorio)</td>
+                                    <td class="col-val"><code class="code-badge"><strong>OID:</strong> {{ user.oid or "No disponible" }}</code></td>
+                                </tr>
+                                <tr>
+                                    <td class="col-claim"><code class="claim-name">tid</code></td>
+                                    <td class="col-desc">Tenant Identifier (ID del directorio empresarial)</td>
+                                    <td class="col-val"><code class="code-badge"><strong>Tenant ID:</strong> {{ user.tid or "No disponible" }}</code></td>
+                                </tr>
+                                <tr>
+                                    <td class="col-claim"><code class="claim-name">iss</code></td>
+                                    <td class="col-desc">Token Issuer (Emisor criptográfico de la aserción)</td>
+                                    <td class="col-val"><code class="code-badge"><strong>Issuer:</strong> {{ user.iss or "No disponible" }}</code></td>
+                                </tr>
+                                <tr>
+                                    <td class="col-claim"><code class="claim-name">aud</code></td>
+                                    <td class="col-desc">Audience (Identificador de la aplicación cliente destino)</td>
+                                    <td class="col-val"><code class="code-badge"><strong>Audience:</strong> {{ user.aud or "No disponible" }}</code></td>
+                                </tr>
+                                <tr>
+                                    <td class="col-claim"><code class="claim-name">exp</code></td>
+                                    <td class="col-desc">Expiration Time (Marca temporal UNIX de caducidad)</td>
+                                    <td class="col-val"><code class="code-badge"><strong>Expiración:</strong> {{ user.exp or "No disponible" }}</code></td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    <div class="claims-scroll-hint">
+                        <span>&larr; Desliza horizontalmente la tabla para ver todos los campos &rarr;</span>
+                    </div>
+                </div>
+            </details>
+        </div>
+        {% endif %}
+    </main>
+
+    <footer class="footer">
+        <div class="footer-content">
+            <div>
+                <strong>Mirador de Montepinar S.L.</strong> &copy; 2026. Todos los derechos reservados.
+            </div>
+            <div>
+                Laboratorio 09 — Autenticación OAuth 2.0 / OIDC con Microsoft Entra ID
+            </div>
+        </div>
+    </footer>
+
+</body>
+</html>
