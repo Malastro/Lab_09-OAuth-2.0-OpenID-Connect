@@ -62,7 +62,42 @@ En este proceso intervienen tres elementos con responsabilidades diferenciadas:
 
 El ID token contiene los claims utilizados para identificar al usuario. El access token se utiliza para autorizar las llamadas a Microsoft Graph. Ambos tokens cumplen funciones diferentes dentro del proceso.
 
-### 3.2. Componentes principales
+### 3.2. Estructura del proyecto y componentes principales
+
+```text
+Lab-09-OAuth2-OIDC-Entra-ID/
+├── .env.example
+├── .gitignore
+├── README.md
+├── requirements.txt
+├── run.py
+├── app/
+│   ├── __init__.py
+│   ├── auth.py
+│   ├── config.py
+│   ├── flow_store.py
+│   ├── graph.py
+│   ├── logging_config.py
+│   ├── routes.py
+│   ├── static/
+│   │   └── css/
+│   │       └── style.css
+│   └── templates/
+│       ├── error.html
+│       └── index.html
+├── screenshots/
+│   ├── 01_auth.png
+│   ├── 02_msgraph.png
+│   ├── 03_joaquin.png
+│   ├── 04_sergio.png
+│   ├── 05_forbidden.png
+│   └── 06_test.png
+└── tests/
+    ├── test_flow_store.py
+    ├── test_logging.py
+    ├── test_logout.py
+    └── test_priority_corrections.py
+```
 
 | Componente | Responsabilidad |
 |---|---|
@@ -70,10 +105,11 @@ El ID token contiene los claims utilizados para identificar al usuario. El acces
 | `app/__init__.py` | Inicialización de Flask, registro de rutas, configuración de seguridad y contexto de las peticiones. |
 | `app/routes.py` | Gestión de las rutas principales: página de inicio, inicio de sesión, callback de autenticación y cierre de sesión. |
 | `app/auth.py` | Integración con MSAL y gestión del flujo de autenticación. |
-| `app/config.py` | Carga y validación de la configuración de la aplicación y de Microsoft Entra ID. |
+| `app/config.py` | Carga y validación estricta de la configuración de la aplicación y de Microsoft Entra ID. |
 | `app/flow_store.py` | Almacenamiento temporal de los flujos de autenticación, con caducidad y vinculación al navegador. |
 | `app/graph.py` | Comunicación con Microsoft Graph y tratamiento de las respuestas de la API. |
 | `app/logging_config.py` | Configuración del sistema de logging estructurado en formato JSON. |
+| `app/static/css/style.css` | Hoja de estilos corporativa con diseño responsive, paleta de colores de Mirador de Montepinar, tarjetas y tablas de diagnóstico. |
 | `app/templates/` | Plantillas Jinja2 utilizadas para representar la interfaz y las páginas de error. |
 | `tests/` | Pruebas automatizadas de autenticación, sesiones, logging y controles de seguridad. |
 
@@ -83,10 +119,10 @@ La aplicación utiliza un registro propio en Microsoft Entra ID, configurado par
 
 Se ha configurado:
 
-- Un identificador de aplicación y un identificador de inquilino.
-- Un secreto de cliente almacenado mediante variables de entorno.
-- Una URI de redirección para recibir la respuesta de autenticación.
-- Una URI de retorno tras el cierre de sesión.
+- Un identificador de aplicación (`CLIENT_ID`) y un identificador de inquilino (`TENANT_ID`).
+- Un secreto de cliente (`CLIENT_SECRET`) almacenado exclusivamente mediante variables de entorno en el archivo local `.env`.
+- Una URI de redirección (`REDIRECT_URI`): `http://localhost:5000/getAToken` para recibir la respuesta de autorización OAuth 2.0 y el código temporal.
+- Una URI de retorno tras el cierre de sesión (`POST_LOGOUT_REDIRECT_URI`): `http://localhost:5000/` para devolver al usuario a la página principal tras el logout federado.
 - El permiso delegado `User.Read` para consultar el perfil del usuario autenticado mediante Microsoft Graph.
 
 La aplicación utiliza Authorization Code Flow con PKCE, junto con los parámetros `state` y `nonce` para reforzar la protección del proceso de autenticación.
@@ -136,10 +172,10 @@ El primer paso fue registrar la aplicación web de Mirador de Montepinar S.L. en
 
 Se configuró una aplicación de tipo Web, con autenticación de un único inquilino y las siguientes direcciones:
 
-| Configuración | URI |
-|---|---|
-| URI de redirección | `http://localhost:5000/getAToken` |
-| URI de retorno tras el cierre de sesión | `http://localhost:5000/` |
+| Configuración | URI | Descripción |
+|---|---|---|
+| URI de redirección (`REDIRECT_URI`) | `http://localhost:5000/getAToken` | Endpoint de callback donde Entra ID devuelve el código de autorización. |
+| URI de retorno tras logout (`POST_LOGOUT_REDIRECT_URI`) | `http://localhost:5000/` | Endpoint al que Entra ID redirige tras completar el cierre de sesión federado. |
 
 También se creó un secreto de cliente para que Flask pudiera autenticarse como aplicación confidencial. El secreto se guarda en `.env` y no forma parte del repositorio.
 
@@ -236,14 +272,14 @@ Se centralizaron las variables de configuración y se incorporaron validaciones 
 
 Se revisaron, entre otros, los siguientes elementos:
 
-- Clave de sesión de Flask.
-- Identificador del tenant.
-- URI de retorno tras el cierre de sesión.
-- Tiempo de vida de los flujos temporales.
-- Valores necesarios para la configuración de Microsoft Entra ID.
+- Clave de sesión de Flask (`FLASK_SECRET_KEY`): longitud mínima de 32 caracteres, comprobación de entropía y rechazo de marcadores de posición o plantillas.
+- Parámetro `SESSION_COOKIE_SECURE`: validación estricta de valores booleanos (`true` o `false`).
+- Identificador del tenant (`TENANT_ID`): comprobación de UUID o FQDN válido y rechazo de endpoints genéricos.
+- URI de retorno tras el cierre de sesión (`POST_LOGOUT_REDIRECT_URI`): validación estricta de esquemas y destinos seguros.
+- Tiempo de vida de la sesión (`PERMANENT_SESSION_LIFETIME_MINUTES`): entero positivo mayor o igual a 1.
 - Separación entre configuraciones de ejemplo y secretos reales.
 
-El archivo `.env` permanece fuera del repositorio y `.env.example` sirve como referencia para preparar una instalación.
+El archivo `.env` permanece fuera del repositorio (protegido mediante `.gitignore`) y `.env.example` sirve como referencia para preparar una instalación.
 
 #### SEC-05. Logging estructurado y protección de información sensible
 
@@ -337,7 +373,7 @@ En los escenarios de error se comprueba que el flujo temporal queda eliminado cu
 
 ### Fase 8. Pruebas automatizadas, auditoría y correcciones finales
 
-El laboratorio se sometió a varios ciclos de revisión y corrección. Se inspeccionaron las rutas, las plantillas, la gestión de sesiones, los flujos temporales, la integración con Graph y las pruebas automatizadas.
+El laboratorio se sometió a varios ciclos de revisión y corrección. Se inspeccionaron las rutas, las plantillas, la gestión de sesiones, los flujos temporales, la integración con Graph, la configuración estricta y las pruebas automatizadas.
 
 La suite se ejecuta mediante:
 
@@ -348,11 +384,11 @@ python -m unittest discover tests -v
 La validación final obtuvo el siguiente resultado:
 
 ```text
-Ran 67 tests
+Ran 70 tests
 OK
 ```
 
-Se incorporan pruebas para verificar el comportamiento ante errores de autenticación, la limpieza del `FlowStore`, la configuración de sesiones, la protección CSRF, el autoescape de Jinja2 y la representación dinámica de distintas identidades.
+Se incorporan pruebas para verificar el comportamiento ante errores de autenticación, la limpieza del `FlowStore`, la configuración de sesiones, la protección CSRF, el autoescape de Jinja2, la validación exhaustiva de claves y cookies de sesión, y la representación dinámica de distintas identidades.
 
 Las pruebas automatizadas utilizan simulaciones cuando es necesario aislar las dependencias externas. Las autenticaciones con Joaquín y Sergio se validaron manualmente contra el inquilino real de Microsoft Entra ID.
 
@@ -361,7 +397,7 @@ La revisión final también incluyó la fijación de las cinco dependencias dire
 El resultado es una aplicación que ha pasado tanto por pruebas automatizadas como por comprobaciones manuales contra un inquilino real de Microsoft Entra ID.
 
 
-![Suite de 67 pruebas automatizadas superadas](screenshots/06_test.png)
+![Suite de 70 pruebas automatizadas superadas](screenshots/06_test.png)
 
 ## 5. Conclusiones y resultados de validación
 
@@ -385,7 +421,7 @@ El resultado no se limita a completar un inicio de sesión. Se ha trabajado en e
 | Microsoft Graph | Consulta del perfil personal mediante `User.Read`. |
 | Mínimo privilegio | Acceso a `/users` rechazado por Microsoft Graph con HTTP 403. |
 | Cierre de sesión | Cierre de sesión local y redirección al endpoint de Microsoft Entra ID. |
-| Pruebas | 67 tests superados, sin fallos. |
+| Pruebas | 70 tests superados, sin fallos. |
 
 ### Validación con Microsoft Entra ID
 
@@ -401,53 +437,15 @@ También se validó el cierre de sesión real contra Microsoft Entra ID.
 ### Resultado de la suite automatizada
 
 ```text
-Ran 67 tests
+Ran 70 tests
 OK
 ```
 
-Las pruebas incluyen escenarios de funcionamiento normal, errores OAuth/OIDC y controles de seguridad. Las autenticaciones reales con Joaquín y Sergio se registraron como validaciones manuales independientes de la suite automatizada.
+Las pruebas incluyen escenarios de funcionamiento normal, errores OAuth/OIDC, validaciones estrictas de configuración y controles de seguridad. Las autenticaciones reales con Joaquín y Sergio se registraron como validaciones manuales independientes de la suite automatizada.
 
 El laboratorio queda validado para su propósito formativo en un entorno local. No se presenta como una aplicación lista para producción.
 
-## 6. Tecnologías y competencias desarrolladas
-
-### Tecnologías utilizadas
-
-| Tecnología | Aplicación en el laboratorio | Competencia desarrollada |
-|---|---|---|
-| Microsoft Entra ID | Registro de aplicación, inquilino y configuración de autenticación. | Administración de identidades en la nube y autenticación federada. |
-| OAuth 2.0 | Flujo de código de autorización. | Implementación de flujos de autorización. |
-| OpenID Connect | ID token, claims y gestión de identidad. | Autenticación y gestión de identidad federada. |
-| PKCE | `code_verifier` y `code_challenge` con S256. | Protección del flujo de autorización. |
-| MSAL Python | Cliente confidencial e intercambio de tokens. | Integración con la plataforma de identidad de Microsoft. |
-| Microsoft Graph | API `/me` y `/users`. | Consumo de API y gestión de permisos delegados. |
-| Python 3.13 | Lógica de aplicación, configuración y pruebas. | Desarrollo y automatización. |
-| Flask | Rutas, sesiones y renderizado del portal. | Desarrollo de aplicaciones web. |
-| Flask-WTF | Protección CSRF. | Seguridad de formularios y peticiones. |
-| Jinja2 | Plantillas con autoescape. | Mitigación de XSS. |
-| `secrets` | Generación y comparación segura de tokens. | Manejo de valores aleatorios sensibles. |
-| `threading.Lock` | Control de concurrencia en FlowStore. | Sincronización y gestión de estado concurrente. |
-| `unittest` | Pruebas automatizadas. | Validación de lógica y regresiones. |
-| `unittest.mock` | Simulación de respuestas de MSAL y Graph. | Pruebas controladas de integraciones. |
-| `python-dotenv` | Carga de configuración local. | Separación de configuración y código. |
-| `requests` | Consultas HTTP y comunicación con Microsoft Graph. | Integración con servicios REST. |
-| GitHub | Organización y documentación del proyecto. | Presentación de un portfolio técnico. |
-
-### Competencias IAM practicadas
-
-El laboratorio trabaja áreas directamente relacionadas con funciones de IAM Engineer e Identity Security:
-
-- Integración de aplicaciones con un proveedor de identidad corporativa.
-- Autenticación federada y protocolos OAuth 2.0 / OIDC.
-- Gestión segura de credenciales y tokens.
-- Autorización mediante permisos delegados.
-- Aplicación del principio de mínimo privilegio.
-- Diferenciación entre autenticación y autorización.
-- Gestión de sesiones y cierre de sesión.
-- Análisis de errores de identidad y acceso.
-- Pruebas de seguridad y validación de controles.
-
-### Puesta en marcha local
+## 6. Puesta en marcha local
 
 El proyecto utiliza Python 3.13 y requiere una configuración propia de Microsoft Entra ID.
 
@@ -479,7 +477,24 @@ Crear el archivo `.env` a partir de `.env.example`:
 Copy-Item .env.example .env
 ```
 
-Completar las variables necesarias con los valores del registro de aplicación de Microsoft Entra ID. El secreto de cliente debe permanecer exclusivamente en el archivo `.env`, que no debe subirse al repositorio.
+Generar una clave secreta criptográficamente segura para Flask (mínimo 32 caracteres y alta entropía):
+
+```powershell
+python -c "import secrets; print(secrets.token_urlsafe(48))"
+```
+
+Configurar en el archivo `.env`:
+- `CLIENT_ID`: Identificador de la aplicación registrada en Microsoft Entra ID.
+- `TENANT_ID`: Identificador del directorio inquilino (UUID o nombre de dominio).
+- `CLIENT_SECRET`: Valor secreto del cliente generado en Entra ID.
+- `REDIRECT_URI`: `http://localhost:5000/getAToken` (debe coincidir con la URI de redirección registrada en Entra ID).
+- `POST_LOGOUT_REDIRECT_URI`: `http://localhost:5000/` (URI de retorno posterior al cierre de sesión).
+- `FLASK_SECRET_KEY`: La clave generada con el comando superior. La aplicación valida que tenga al menos 32 caracteres, suficiente entropía y rechazará claves de ejemplo o predeterminadas, impidiendo el arranque si la clave es insegura.
+- `SESSION_COOKIE_SECURE`: `false` para pruebas locales en HTTP (`true` para despliegues con HTTPS).
+- `PERMANENT_SESSION_LIFETIME_MINUTES`: Duración en minutos de la sesión permanente (por defecto `60`).
+
+> [!IMPORTANT]
+> El archivo `.env` contiene credenciales confidenciales y secretos criptográficos. Está incluido en `.gitignore` y **nunca debe subirse al repositorio ni compartirse**.
 
 **5. Ejecutar la aplicación**
 
@@ -493,9 +508,11 @@ Abrir el portal en el navegador:
 http://localhost:5000
 ```
 
-Las URI utilizadas durante la configuración de Microsoft Entra ID deben coincidir con las registradas en el proyecto.
+Las URI utilizadas durante la configuración de Microsoft Entra ID deben coincidir exactamente con las registradas en el proyecto:
+- **URI de redirección:** `http://localhost:5000/getAToken`
+- **URI de cierre de sesión:** `http://localhost:5000/`
 
-**Ejecutar las pruebas automatizadas**
+**6. Ejecutar las pruebas automatizadas**
 
 Desde la raíz del proyecto y con el entorno virtual activo:
 
@@ -547,5 +564,3 @@ Las direcciones `localhost` y la configuración actual están destinadas a prueb
 - Estudiar la integración del cierre de sesión de canal frontal para escenarios de inicio de sesión único con varias aplicaciones.
 
 ---
-
-**Estado del proyecto:** laboratorio funcional y validado mediante 67 pruebas automatizadas y autenticaciones reales en Microsoft Entra ID. Las mejoras pendientes corresponden a su evolución hacia un entorno distribuido y de producción.
