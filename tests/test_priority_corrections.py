@@ -13,6 +13,11 @@ with patch("msal.authority.tenant_discovery") as mock_disc:
     }
     from app import create_app
     from app.flow_store import flow_store
+    from app.config import (
+        validate_flask_secret_key,
+        validate_session_cookie_secure,
+        validate_permanent_session_lifetime,
+    )
 
 
 class TestPriorityCorrections(unittest.TestCase):
@@ -174,23 +179,143 @@ class TestPriorityCorrections(unittest.TestCase):
                 self.assertNotIn("client_secret", sess)
 
     def test_config_validation_permanent_session_lifetime(self):
-        """Verifica que PERMANENT_SESSION_LIFETIME_MINUTES rechaza valores no enteros o < 1 (SEC-04)."""
-        def parse_lifetime(raw_val):
-            val = int(raw_val)
-            if val < 1:
-                raise ValueError
-            return val
+        """Verifica que validate_permanent_session_lifetime exige enteros válidos >= 1 y rechaza decimales, booleanos y tipos inválidos (SEC-04)."""
+        # Debe aceptar cadenas enteras válidas y números enteros
+        self.assertEqual(validate_permanent_session_lifetime("60"), 60)
+        self.assertEqual(validate_permanent_session_lifetime(60), 60)
+        self.assertEqual(validate_permanent_session_lifetime("30"), 30)
 
+        # Debe rechazar valores decimales (tanto cadenas como floats)
         with self.assertRaises(ValueError):
-            parse_lifetime("0")
-
+            validate_permanent_session_lifetime("1.5")
         with self.assertRaises(ValueError):
-            parse_lifetime("-15")
-
+            validate_permanent_session_lifetime(1.5)
         with self.assertRaises(ValueError):
-            parse_lifetime("not-a-number")
+            validate_permanent_session_lifetime(60.0)
 
-        self.assertEqual(parse_lifetime("30"), 30)
+        # Debe rechazar booleanos y None
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime(True)
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime(False)
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime(None)
+
+        # Debe rechazar cero y números negativos
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime("0")
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime(0)
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime("-15")
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime(-15)
+
+        # Debe rechazar cadenas no numéricas
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime("not-a-number")
+        with self.assertRaises(ValueError):
+            validate_permanent_session_lifetime("")
+
+    def test_config_validation_flask_secret_key(self):
+        """Verifica que validate_flask_secret_key rechaza claves cortas, vacías, de plantilla o con patrones repetitivos triviales."""
+        # Rechazar vacío, None o solo espacios
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("")
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key(None)
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("   ")
+
+        # Rechazar longitud inferior a 32 caracteres
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("clave-corta-de-menos-de-32-c")
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("1234567890123456789012345678901")  # 31 caracteres
+
+        # Rechazar valores de ejemplo o marcadores de posición
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("change-me-to-a-secure-random-key-at-least-32-chars-long")
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("GENERA_TU_PROPIA_CLAVE_ALEATORIA_CON_EL_COMANDO_SUPERIOR")
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("mi-clave-super-secreta-con-placeholder-123456")
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("esto-es-un-ejemplo-your-secret-key-aqui-12345678")
+
+        # Rechazar patrones repetitivos triviales (menos de 8 caracteres distintos)
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("a" * 40)
+        with self.assertRaises(ValueError):
+            validate_flask_secret_key("abcdef" + "a" * 30)  # menos de 8 caracteres distintos
+
+        # Aceptar claves válidas y robustas
+        valid_key_48 = "kL9_zP4xQ2wE8rT1yU3iO5pA7sD6fG0hJ-vB9nM2cZ8xY7wV"
+        self.assertEqual(validate_flask_secret_key(valid_key_48), valid_key_48)
+
+        valid_hex_64 = "4f8a1c9e2b3d7a6f5e0c8b9d1a2f3e4c5b6a7d8e9f0a1b2c3d4e5f6a7b8c9d0e"
+        self.assertEqual(validate_flask_secret_key(valid_hex_64), valid_hex_64)
+
+    def test_character_diversity_is_not_an_entropy_guarantee(self):
+        """
+        Demuestra que la comprobación de diversidad de caracteres (len(set) >= 8)
+        es únicamente un filtro de higiene contra patrones triviales, pero NO constituye
+        una garantía de entropía criptográfica.
+
+        Una clave estructurada y predecible como 'abcdefgh' * 4 posee 8 caracteres únicos
+        y 32 caracteres de longitud, superando la validación sintáctica a pesar de carecer
+        de entropía real. Esto demuestra que los controles sintácticos no sustituyen la generación
+        mediante un CSPRNG robusto (secrets.token_urlsafe(48)).
+        """
+        predictable_key = "abcdefgh" * 4  # 32 caracteres, 8 únicos
+        self.assertEqual(len(set(predictable_key)), 8)
+        self.assertEqual(len(predictable_key), 32)
+
+        # Supera la validación sintáctica por cumplir longitud y diversidad mínima
+        validated = validate_flask_secret_key(predictable_key)
+        self.assertEqual(validated, predictable_key)
+
+        # Confirmación de que una clave generada mediante CSPRNG cumple la validación
+        import secrets
+        csprng_key = secrets.token_urlsafe(48)
+        self.assertEqual(validate_flask_secret_key(csprng_key), csprng_key)
+
+    def test_config_validation_session_cookie_secure(self):
+        """Verifica que validate_session_cookie_secure admite solo 'true'/'false' y rechaza erratas u otros valores."""
+        # Valores válidos
+        self.assertTrue(validate_session_cookie_secure("true"))
+        self.assertTrue(validate_session_cookie_secure("True"))
+        self.assertTrue(validate_session_cookie_secure("TRUE"))
+        self.assertTrue(validate_session_cookie_secure("  true  "))
+
+        self.assertFalse(validate_session_cookie_secure("false"))
+        self.assertFalse(validate_session_cookie_secure("False"))
+        self.assertFalse(validate_session_cookie_secure("FALSE"))
+        self.assertFalse(validate_session_cookie_secure("  false  "))
+
+        # Erratas y valores no estrictamente booleanos deben lanzar ValueError
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure("treu")
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure("flase")
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure("yes")
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure("no")
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure("1")
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure("0")
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure("")
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure("   ")
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure(None)
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure(True)
+        with self.assertRaises(ValueError):
+            validate_session_cookie_secure(False)
 
     def test_full_portal_flow_with_joaquin_arias(self):
         """Prueba automatizada con mocks del ciclo completo con Joaquín Arias: login, callback con claims, perfil Graph, 403 y logout."""
