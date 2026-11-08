@@ -1,4 +1,15 @@
+# Entornos virtuales
 venv/
+.venv/
+env/
+
+# Ficheros de secretos y configuración local
 .env
+
+# Bytecode y cachés de Python
 __pycache__/
-*.pyc
+*.py[cod]
+.pytest_cache/
+
+# Archivos de registro / logs
+*.log
