@@ -397,7 +397,7 @@ La revisión final también incluyó la fijación de las cinco dependencias dire
 El resultado es una aplicación que ha pasado tanto por pruebas automatizadas como por comprobaciones manuales contra un inquilino real de Microsoft Entra ID.
 
 
-![Suite de 70 pruebas automatizadas superadas](screenshots/06_test.png)
+![Suite de 70 pruebas automatizadas superadas](screenshots/06_tests.png)
 
 ## 5. Conclusiones y resultados de validación
 
